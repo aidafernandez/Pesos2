@@ -1,0 +1,451 @@
+---
+title: "Dades de creixement (Francesc González)"
+author: "Mercè Farré"
+date: "17/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+
+```{r}
+library(car)
+library(readxl)
+library(dagitty)
+library(lavaan)
+```
+
+
+
+
+## Dades
+
+Correcció d'algunes dades anòmales, blocs de pes a 20 dies
+creació dels dataframes de mascles i femelles, ...
+
+```{r}
+dadesFr <- read_excel("AGL2016-75463_BW.xlsx",sheet = "TOT")
+
+dim(dadesFr)
+ # 729 ,12
+names(dadesFr)
+subset(dadesFr,bw163<65)
+dim(subset(dadesFr,bw163<65|is.na(bw163))) # 35 casos (3+32)
+
+## traiem dos casos que no arriben als 65kg a d163
+dadesFr <- subset(dadesFr,bw163 >= 65 & !is.na(bw163))
+dim(dadesFr) # 729-35=694 casos
+
+### ADG 0-20 : lactació
+
+adgLac <- (dadesFr$bw20 - dadesFr$bw0)/20
+dadesFr$adgLac <- adgLac
+
+## redefineixo block, a partir dels tercils de pes al final de la lactació
+x <- dadesFr$bw20
+block <- cut(x,breaks=quantile(x,seq(0,1,1/3)),labels=1:3,include.lowest=T)
+dadesFr$block <- block
+
+
+# defineixo treatGes nivells 0={1,4}, 3, 4
+
+x <- dadesFr$treat
+xnou <- x
+xnou[x==1|x==4] <- 0
+table(xnou)
+dadesFr$treatGes <- xnou
+
+# defineixo treatLac nivells 0={1,2}, 3, 4
+
+x <- dadesFr$treat
+xnou2 <- x
+xnou2[x==1|x==2] <- 0
+table(xnou2)
+dadesFr$treatLac <- xnou2
+
+# subsets mascles i femelles
+
+dadesFrM <- subset(dadesFr,sex=="m") # males
+dadesFrF <- subset(dadesFr,sex=="f") # females
+
+
+```
+
+
+
+```{r, eval=F}
+# NOT RUN  eval=F no s'avalua
+## variable sexe*bloc i sexe*tractament
+#sexByBlock <- paste0(dadesFr$sex,dadesFr$block)
+#dadesFr <- data.frame(dadesFr[1:6],sexByBlock,dadesFr[7:13]) 
+
+#sexByTreat <- paste0(dadesFr$sex,dadesFr$treat)
+#dadesFr <- data.frame(dadesFr[1:7],sexByTreat,dadesFr[8:14]) 
+```
+
+
+## Funció per definir intervals de coonfiança pels coeficients i pels increments
+
+S'aplica al final als models causals !
+
+```{r}
+### function giving confidence interval for the slope
+### and confidence interval for the increment in the response related to 
+### an increment of a number of standard deviations in a given variable x.
+
+ci.beta1 <- function(mod,alpha=0.05,vexpl=1,nsd=1)
+{ # mod x=t,y=T; mod<-mod.efAdgLac; nsd num de sd que vull incrementar
+  gl    <- mod$df.residual
+  smod  <- summary(mod) 
+  beta1 <- smod$coef[vexpl+1,1]  
+  se    <- smod$coef[vexpl+1,2]   
+  t     <- qt(1-(alpha/2),gl) 
+  li    <- beta1-t*se
+  ls    <- beta1+t*se
+  sdx   <- sd(mod$x[,1+vexpl])
+  Incy  <- beta1*sdx*nsd
+  liIncy<- li*sdx*nsd
+  lsIncy<- ls*sdx*nsd
+  list(coef=beta1, linf.coef=li, lsup.coef=ls, 
+       linf.Incy=liIncy,lsup.Incy=lsIncy)  
+}
+
+```
+
+
+## Exploració dels efectes 
+
+### De treatGes --> bw0, de treatLac --> adgLac i de treatLac --> bw20
+
+
+```{r}
+#names(dadesFr)
+boxplot(bw0 ~ as.factor(sex),data=dadesFr)
+boxplot(bw0 ~ as.factor(band),data=dadesFr)
+boxplot(bw0 ~ as.factor(treatGes),data=dadesFr)
+boxplot(bw0 ~ as.factor(treatGes)*as.factor(band),data=dadesFr)
+boxplot(adgLac ~ as.factor(treatGes)*as.factor(band),data=dadesFr)
+boxplot(adgLac ~ as.factor(treatLac)*as.factor(band),data=dadesFr)
+
+boxplot(bw20 ~ as.factor(sex),data=dadesFr)
+boxplot(bw20 ~ as.factor(treatLac),data=dadesFr)
+boxplot(bw20 ~ as.factor(treatGes)*as.factor(sex),data=dadesFr)
+boxplot(bw20 ~ as.factor(treatLac)*as.factor(sex),data=dadesFr)
+```
+
+### De bw0 --> adgLac: interacció amb sex, treatGes i treatLac
+
+```{r}
+scatterplot(adgLac~bw0|as.factor(sex),smooth=F,data=dadesFr)  # F=M 
+scatterplot(adgLac~bw0|as.factor(treatGes),smooth=F,data=dadesFr)  
+scatterplot(adgLac~bw0|as.factor(treatLac),smooth=F,data=dadesFr)  
+```
+### De bw0 --> bw21: interacció amb sex, treatGes i treatLac
+
+```{r}
+scatterplot(bw20~bw0|as.factor(sex),smooth=F,data=dadesFr)  # F=M 
+scatterplot(bw20~bw0|as.factor(treatGes),smooth=F,data=dadesFr)  
+scatterplot(bw20~bw0|as.factor(treatLac),smooth=F,data=dadesFr) 
+scatterplot(bw20~bw0|as.factor(treat),smooth=F,data=dadesFr)
+```
+
+
+```{r}
+
+modbw00 <- lm(bw0 ~  as.factor(treatGes) * as.factor(band),data=dadesFr,x=T)
+summary(modbw00)
+
+modbw20<-lm(bw20 ~ bw0+as.factor(treatGes)+as.factor(band)+as.factor(sex)
+          ,data=dadesFr,x=T)
+summary(modbw20)
+
+modbw20_1<-lm(bw20 ~ bw0+as.factor(treatGes)+as.factor(band)
+          ,data=dadesFr,x=T)
+summary(modbw20_1)
+
+modbw20_2<-lm(bw20 ~ bw0+as.factor(treatLac)+as.factor(band)
+          ,data=dadesFr,x=T)
+summary(modbw20_2)
+
+
+## el millors model fins ara
+modbw20_3<-lm(bw20 ~ bw0+as.factor(treat)+as.factor(band)
+          ,data=dadesFr,x=T)
+summary(modbw20_3)
+
+plot(modbw20_3)
+# traiem els casos outlier
+dadesFr[c(70,81,693),]
+mean(dadesFr$bw0) # 1.48 
+mean(dadesFr$bw20)# 5.63
+
+dadesFr <- dadesFr[c(70,81,693,657),]
+
+modbw20_3<-lm(bw20 ~ bw0+as.factor(treat)+as.factor(band)
+          ,data=dadesFr,x=T)
+summary(modbw20_3)
+plot(modbw20_3)
+
+dadesFr <- dadesFr[-c(657),]
+
+```
+
+
+--------------------------------------------------------------------------
+
+
+### De totes les explicatives en bw163 
+
+Variables o factors explicatius: bw0, adgLac, sex, treat, band, block (descartat perquè 
+ja hi posem bw0 i adg07, els blocs tant a 0 com a 20 dies són redundants)
+
+
+*De bw0 en bw163, en funció dels grups definits pels factors*
+
+```{r}
+require(car)
+# interacció i intercept diferents
+scatterplot(bw163~bw0|as.factor(sex),smooth=F,data=dadesFr)
+scatterplot(bw163~bw0|as.factor(treat),smooth=F,data=dadesFr)
+
+
+```
+
+
+*De adgLac en bw163, en funció dels grups definits pels factors*
+
+```{r}
+scatterplot(bw163~adgLac|as.factor(sex),smooth=F,data=dadesFr)
+scatterplot(bw163~adgLac|as.factor(treat),smooth=F,data=dadesFr)
+```
+
+
+Considerem el tractament 4 separat dels altres (mneys pendent), però sembla degut a unes poques dades que donen més pendent als altres tractaments.
+
+```{r}
+scatterplot(bw163~adgLac|as.factor(treat==4),smooth=F,data=dadesFrM) # dif?
+scatterplot(bw163~adgLac|as.factor(treat==4),smooth=F,data=dadesFrF) # no dif
+```
+
+
+L'efecte bloc de pes, com ja he dit abans, no sembla pertinent en aquest nivell perquè
+ja usem la variable pes al neixment (no té sentit fer blocs de pes de la mateixa variable que s'hi posa, i tampoc tenen gaire sentit els blocs al deslletament peruè hi posem el creixement mitjà diari ...)
+
+```{r}
+scatterplot(bw163~bw0|as.factor(block),smooth=F,data=dadesFr)  
+scatterplot(bw163~bw0|as.factor(block),smooth=F,data=dadesFrM)  
+scatterplot(bw163~bw0|as.factor(block),smooth=F,data=dadesFrF)
+# interacció?
+# curiosament, sembla que les femelles més petites creixen més
+# sembla l'efecte dún úni animal ??
+## cal estudiar aquest cas ??
+
+```
+
+
+((El que ve a continuació no ho he revisat ... ja em direu si hi ha alguna cosa rellevant))
+
+```{r}
+subset(dadesFrF,bw0>2) 
+## es la femella que pesa més, pig=722, que després a d20 és molt petita
+scatterplot(bw20~bw0|as.factor(block),smooth=F,data=dadesFr) 
+
+scatterplot(bw163~bw0|as.factor(treat),smooth=F,data=dadesFr)
+scatterplot(bw163~bw0|as.factor(treat==4),smooth=F,data=dadesFrM)
+scatterplot(bw163~bw0|as.factor(treat==4),smooth=F,data=dadesFrF)
+
+```
+
+
+
+
+
+
+
+## Models
+
+```{r}
+
+mod00<-lm(bw163~bw0+adgLac+as.factor(treat)+as.factor(band)+as.factor(sex)
+          ,data=dadesFr,x=T)
+summary(mod00)
+```
+
+```{r}
+# trec treat i band i comprovo que no aporten significacio 
+mod02<-lm(bw163~bw0+adgLac+as.factor(sex),data=dadesFr,x=T)
+summary(mod02)   # bon model
+anova(mod02,mod00)
+```
+
+```{r}
+# afegeixo interaccions: no significatiu
+mod03<-lm(bw163~bw0*as.factor(sex)+adgLac,data=dadesFr,x=T)
+summary(mod03)
+anova(mod03,mod02)
+```
+
+```{r}
+# afegeixo tractament només mascles 
+mod02m<-lm(bw163~bw0+adgLac*as.factor(treat==4),data=dadesFrM,x=T)
+summary(mod02m)  # provat band però no afegeix res
+```
+
+```{r}
+# afegeixo tractament només femelles: nosignificatiu 
+mod02f<-lm(bw163~bw0+adgLac*as.factor(treat),data=dadesFrF,x=T)
+summary(mod02f)
+```
+
+```{r}
+## per femelles ens quedem amb el model sense tractament
+mod02f<-lm(bw163~ bw0,data=dadesFrF,x=T)
+summary(mod02f)  # coincideix amb el pendent i intercept de femelles de mod03
+
+```
+
+```{r}
+mod03f<-lm(bw163~ bw0+as.factor(band),data=dadesFrF,x=T)
+summary(mod03f)   # en femelles sí !!
+
+```
+
+
+**La conclusió és que sembla recomanable no distingir mascles de femelles i considerar models que tinguin bw00, adgLac i sex.
+
+
+##  Causal inference
+
+### general 
+
+```{r}
+
+require(dagitty)
+require(lavaan)
+
+gbw163 <- dagitty('dag{ 
+U -> bw0  -> bw163
+sex  -> bw0
+sex  -> bw163
+bw0  -> adgLac -> bw163
+ }')
+#U -> bw163  # no permet estimar l'efecte de bw0
+                 
+coordinates(gbw163) <- list(
+  x=c(sex=1,U=2,bw0=2, adgLac =2,bw163=3),
+  y=c(sex=1,U=3,bw0=2.5, adgLac =1.5,bw163=1))
+plot(gbw163,main="Causal graph")
+
+# adjustment graphs
+adjustmentSets(gbw163, "bw0", "bw163")  # sex
+adjustmentSets(gbw163, "adgLac", "bw163") # bw00
+adjustmentSets(gbw163, "sex", "bw163") # res
+ 
+# models que ens indica la inferència causal
+## amb estimació dels efectes
+## fem <- dadesFr$sex=="f"
+## dadesFr$fem<-fem
+## bw0Xfem <- dadesFr$bw0*dadesFr$fem
+mod.efBw0 <- lm(bw163~bw0+as.factor(sex),data=dadesFr,x=T,y=T)
+sum.efBw0 <- summary(mod.efBw0) # 9.866:  per 100g --> 1kg
+ci.beta1(mod=mod.efBw0,vexpl=1,nsd=1)
+
+mod.efAdgLac <- lm(bw163~bw0+adgLac,data=dadesFr,x=T,y=T)
+sum.efAdgLac <- summary(mod.efAdgLac)  
+ci.beta1(mod=mod.efAdgLac,vexpl=2,nsd=1)     
+
+mod.efBand<- lm(bw163~as.factor(sex),data=dadesFr,x=T,y=T)
+sum.efBand<- summary(mod.efBand)  
+ci.beta1(mod=mod.efBand,vexpl=1,nsd=1)  ## sd de sex, com s'interpreta??
+
+
+# model total: no per explicar els efectes
+# per veure la quantitat de variabilitat explicada
+
+mod <- lm(bw163~bw0+adgLac+as.factor(sex),data=dadesFr,x=T,y=T)
+smod <- summary(mod)
+
+# 14.67 de R2: la resta és variabilitat individual, no afecta la mitjana
+
+```
+
+
+
+
+
+### Sexe = F  (crec que no cal)
+
+
+
+```{r}
+
+gbw163F <- dagitty('dag{ 
+U -> bw0  -> bw163
+bw0  -> adgLac -> bw163
+band -> bw163
+ }')
+#U -> bw163  # no permet estimar l'efecte de bw0
+
+coordinates(gbw163F) <- list(
+  x=c(U=2,bw0=2, adgLac =2,band=3,bw163=3),
+  y=c(U=3,bw0=2.5, adgLac =1.5,band=2.5,bw163=1))
+plot(gbw163F,main="Causal graph")
+
+# adjustment graphs
+adjustmentSets(gbw163F, "bw0", "bw163")     # res
+adjustmentSets(gbw163F, "adgLac", "bw163")  # bw00 !
+adjustmentSets(gbw163F, "band", "bw163")    # res
+
+# models
+modF.efBw0 <- lm(bw163~bw0, data=dadesFrF,x=T)
+sumF.efBw0 <- summary(modF.efBw0) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modF.efBw0,vexpl=1,nsd=1)
+
+modF.efAdgLac <- lm(bw163~bw0+adgLac, data=dadesFrF,x=T)
+sumF.efAdgLac <- summary(modF.efAdgLac) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modF.efAdgLac,vexpl=1,nsd=1)
+
+modF.efBand<- lm(bw163~as.factor(band), data=dadesFrF,x=T)
+sumF.efBand<- summary(modF.efBand) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modF.efBand,vexpl=1,nsd=1)
+
+```
+
+
+### Sexe = M   (crec que no cal)
+
+
+```{r}
+
+gbw163F <- dagitty('dag{ 
+U -> bw0  -> bw163
+bw0  -> adgLac -> bw163
+"treat 4" -> bw163
+ }')
+#U -> bw163  # no permet estimar l'efecte de bw0
+
+coordinates(gbw163F) <- list(
+  x=c(U=2,bw0=2, adgLac =2,"treat 4"=3,bw163=3),
+  y=c(U=3,bw0=2.5, adgLac =1.5,"treat 4"=2.5,bw163=1))
+plot(gbw163F,main="Causal graph")
+
+# adjustment graphs
+adjustmentSets(gbw163F, "bw0", "bw163")     # res
+adjustmentSets(gbw163F, "adgLac", "bw163")  # bw00 !
+adjustmentSets(gbw163F, "treat 4", "bw163")    # res
+
+# models
+modM.efBw0 <- lm(bw163~bw0, data=dadesFrM,x=T)
+sumM.efBw0 <- summary(modM.efBw0) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modM.efBw0,vexpl=1,nsd=1)
+
+modM.efAdgLac <- lm(bw163~bw0+adgLac, data=dadesFrM,x=T)
+sumM.efAdgLac <- summary(modM.efAdgLac) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modM.efAdgLac,vexpl=1,nsd=1)
+
+modM.efTreat<- lm(bw163~as.factor(treat==4), data=dadesFrM,x=T)
+sumM.efTreat<- summary(modM.efTreat) # 7.8:  per 100g --> 0.780kg
+ci.beta1(mod=modM.efTreat,vexpl=1,nsd=1)
+```
