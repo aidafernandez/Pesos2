@@ -1,0 +1,117 @@
+---
+title: "Porcs"
+author: "Aida Fernandez, 1497182"
+fontsize: 11pt
+documentclass: article
+output:
+  html_document:
+    df_print: paged
+    number_sections: false
+  pdf_document: 
+    keep_tex: true
+---
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=4,echo=FALSE, warning=FALSE, message=FALSE,eval=T)
+```
+
+```{r}
+library(readxl)
+dadesFr <- read_excel("AGL2016-75463_BW.xlsx",sheet = "TOT")
+
+dim(dadesFr)
+names(dadesFr)
+
+summary(dadesFr)
+
+dadesFr$treat <- as.factor(dadesFr$treat)
+dadesFr$band <- as.factor(dadesFr$band)
+dadesFr$sow <- as.factor(dadesFr$sow)
+dadesFr$sex <- as.factor(dadesFr$sex)
+dadesFr$block <- as.factor(dadesFr$block)
+
+unique(dadesFr$sow)
+```
+
+Treiem de la bd aquells casos que tinguin pesos a la setamana 163 menors de 65 (es consideren anòmals) o bé que siguin missing en aquest valor.
+
+```{r}
+dadesFr <- subset(dadesFr,bw163 >= 65 & !is.na(bw163))
+dim(dadesFr)
+```
+
+
+```{r}
+dadesFr$difbw20_0 <- dadesFr$bw20 - dadesFr$bw0
+dadesFr$difbw33_20 <- dadesFr$bw33 - dadesFr$bw20
+dadesFr$difbw60_33 <- dadesFr$bw60 - dadesFr$bw33
+dadesFr$difbw120_60 <- dadesFr$bw120 - dadesFr$bw60
+dadesFr$difbw163_120 <- dadesFr$bw163 - dadesFr$bw120
+```
+
+```{r}
+# devtools::install_github("thomasp85/patchwork")
+library(patchwork)
+library(ggplot2)
+# install.packages("devtools")
+library(devtools)
+# devtools::install_github("kassambara/easyGgplot2")
+library(easyGgplot2)
+```
+
+
+```{r}
+histComparatius <- function(BD, Tract1, Tract2,TipusGraf=c(1,2),NombreBins=10,var="BW41"){
+  t1vst2 <- subset(BD,treat == c(Tract1,Tract2))
+  
+  if(TipusGraf==1){
+  ggplot2.histogram(data=t1vst2, xName=var,
+    groupName='treat', legendPosition="top",
+    alpha=0.5, addDensity=TRUE, bins=NombreBins*2)
+    #, addMeanLine=TRUE, meanLineColor="white", meanLineSize=1.5)
+  }
+
+  else{
+  ggplot2.histogram(data=t1vst2, xName=var,
+         groupName='treat', legendPosition="top", bins=NombreBins*2,
+        faceting=TRUE, facetingVarNames="treat")
+  }
+}
+```
+
+
+
+```{r}
+library(gtools)
+```
+
+
+```{r}
+plots2 <- function(l){
+  a <- list(numeric(2))
+  aux <- 1
+  for(i in c(1,4)){
+    a[[aux]] <- l[[i]]+l[[i+1]]+l[[i+2]]
+    aux <- aux + 1 
+  }
+  return(a)
+}
+
+plots1 <- function(variable="difbw20_0"){
+  comb <- combinations(length(levels(dadesFr$treat)),2)
+  plots <- list(numeric(nrow(comb)))
+  for (i in 1:nrow(comb)) {
+    plots[[i]] <- histComparatius(dadesFr,comb[i,1],comb[i,2],1,10,variable)
+  }
+  return(plots2(plots))
+}
+```
+
+
+```{r}
+lapply(c("difbw20_0","difbw33_20","difbw60_33","difbw120_60","difbw163_120"),plots1)
+```
+
+
+
