@@ -16,9 +16,15 @@ output:
 knitr::opts_chunk$set(fig.width=8, fig.height=4,echo=FALSE, warning=FALSE, message=FALSE,eval=T)
 ```
 
+### Tract 1: Control
+### Tract 2: Sumplement gestació
+### Tract 3: Sumplement gestació i lactació
+### Tract 4: Sumplement lactació
+
+
 ```{r}
 library(readxl)
-dadesFr <- read_excel("AGL2016-75463_BW.xlsx",sheet = "TOT")
+dadesFr <- read_excel("Dades_engreix_R.xlsx",sheet = "TOT")
 
 dim(dadesFr)
 names(dadesFr)
@@ -27,18 +33,14 @@ summary(dadesFr)
 
 dadesFr$treat <- as.factor(dadesFr$treat)
 dadesFr$band <- as.factor(dadesFr$band)
-dadesFr$sow <- as.factor(dadesFr$sow)
 dadesFr$sex <- as.factor(dadesFr$sex)
-dadesFr$block <- as.factor(dadesFr$block)
-
-unique(dadesFr$sow)
 ```
 
 Treiem de la bd aquells casos que tinguin pesos a la setamana 163 menors de 65 (es consideren anòmals) o bé que siguin missing en aquest valor.
 
 ```{r}
-dadesFr <- subset(dadesFr,bw163 >= 65 & !is.na(bw163))
-dim(dadesFr)
+#dadesFr <- subset(dadesFr,bw163 >= 65 & !is.na(bw163))
+#dim(dadesFr)
 ```
 
 
@@ -48,6 +50,7 @@ dadesFr$difbw33_20 <- dadesFr$bw33 - dadesFr$bw20
 dadesFr$difbw60_33 <- dadesFr$bw60 - dadesFr$bw33
 dadesFr$difbw120_60 <- dadesFr$bw120 - dadesFr$bw60
 dadesFr$difbw163_120 <- dadesFr$bw163 - dadesFr$bw120
+dadesFr$difbw163_20 <- dadesFr$bw163 - dadesFr$bw20
 ```
 
 ```{r}
@@ -63,7 +66,7 @@ library(easyGgplot2)
 
 ```{r}
 histComparatius <- function(BD, Tract1, Tract2,TipusGraf=c(1,2),NombreBins=10,var="BW41"){
-  t1vst2 <- subset(BD,treat == c(Tract1,Tract2))
+  t1vst2 <- subset(BD,treat == c(Tract2,Tract1))
   
   if(TipusGraf==1){
   ggplot2.histogram(data=t1vst2, xName=var,
@@ -110,7 +113,7 @@ plots1 <- function(variable="difbw20_0"){
 
 
 ```{r}
-lapply(c("difbw20_0","difbw33_20","difbw60_33","difbw120_60","difbw163_120"),plots1)
+lapply(c("difbw20_0","difbw33_20","difbw60_33","difbw120_60","difbw163_120","difbw163_20"),plots1)
 ```
 
 
